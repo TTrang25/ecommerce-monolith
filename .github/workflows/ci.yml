@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        if: ${{ hashFiles('package.json') != '' }}
+        with:
+          node-version: 20
+      - name: Install dependencies
+        if: ${{ hashFiles('package-lock.json') != '' }}
+        run: npm ci
+      - name: Check syntax
+        if: ${{ hashFiles('src/app.js') != '' }}
+        run: find src -name "*.js" -print0 | xargs -0 -n1 node --check
+
+      - name: Create .env from example
+        if: ${{ hashFiles('docker-compose.yml') != '' }}
+        run: cp .env.example .env
+      - name: Build and start (wait for healthy)
+        if: ${{ hashFiles('docker-compose.yml') != '' }}
+        run: docker compose up -d --build --wait --wait-timeout 180
+      - name: Health check
+        if: ${{ hashFiles('docker-compose.yml') != '' }}
+        run: curl -fsS http://localhost:3000/health
+
+      - name: Smoke test
+        if: ${{ hashFiles('scripts/smoke-test.sh') != '' }}
+        run: bash scripts/smoke-test.sh
+
+      - name: Show logs on failure
+        if: ${{ failure() && hashFiles('docker-compose.yml') != '' }}
+        run: docker compose logs
+      - name: Shutdown
+        if: ${{ always() && hashFiles('docker-compose.yml') != '' }}
+        run: docker compose down -v
